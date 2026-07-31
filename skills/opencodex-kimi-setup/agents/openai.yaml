@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCodex + Kimi Setup"
+  short_description: "Set up OpenCodex and Kimi Code safely"
+  default_prompt: "Use $opencodex-kimi-setup to safely configure OpenCodex with Kimi Code and preserve native GPT fallback."
