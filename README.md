@@ -54,7 +54,11 @@ Optionally call Kimi provider metadata:
 python3 skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py --provider-test
 ```
 
-The diagnostic is read-only. It reports credential shape/status only and does not print API keys or OAuth token values.
+The default diagnostic is strict read-only: it does not start `ocx` or `codex`, and it does not print API keys or OAuth token values. After backing up the relevant configuration and knowingly accepting the OpenCodex CLI side effect risk, explicitly request status/model inspection with:
+
+```bash
+python3 skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py --ocx-cli
+```
 
 ## Safety boundaries
 
@@ -80,7 +84,7 @@ If you have Codex's skill validation script locally:
 
 ```bash
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/opencodex-kimi-setup
-python3 -m py_compile skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py
+python3 -B -c 'from pathlib import Path; p=Path("skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py"); compile(p.read_bytes(), str(p), "exec")'
 ```
 
 ## License

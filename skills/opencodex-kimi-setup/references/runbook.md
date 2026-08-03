@@ -20,11 +20,21 @@ Run from the skill folder:
 python3 scripts/diagnose_opencodex_kimi.py
 ```
 
+The default is strict read-only: it does not start `ocx` or `codex`. To inspect
+OpenCodex status and selected models, first back up the affected config and
+then explicitly opt in:
+
+```bash
+python3 scripts/diagnose_opencodex_kimi.py --ocx-cli
+```
+
 Optionally include provider metadata call:
 
 ```bash
 python3 scripts/diagnose_opencodex_kimi.py --provider-test
 ```
+
+`--provider-test` runs only the provider test; it does not imply `--ocx-cli`.
 
 Red flags:
 

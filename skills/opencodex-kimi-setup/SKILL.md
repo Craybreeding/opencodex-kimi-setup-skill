@@ -11,7 +11,7 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
 
 ## Operating rules
 
-1. Start with read-only discovery: `ocx status`, Codex config shape, Kimi model catalog, DNS result for `api.kimi.com`, and whether cc-switch residue exists.
+1. Start with strict read-only discovery: the default diagnostic reads file shape and DNS only; it does not start `ocx` or `codex`. Run `ocx status` or model selection only with `--ocx-cli`, after backing up affected config and acknowledging that some OpenCodex versions can rewrite Codex state.
 2. Back up before every config change. Preserve `~/.codex/config.toml`, `~/.codex/auth.json`, `~/.opencodex/config.json`, and any Clash Verge YAML touched.
 3. Never write, log, commit, or echo API keys, OAuth tokens, or full `auth.json`. Use `read -s` or an existing credential manager for key entry.
 4. Do not replace Codex OAuth credentials with Kimi keys. OpenAI/GPT fallback depends on the original Codex OAuth flow remaining intact.
@@ -28,7 +28,7 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
    python3 scripts/diagnose_opencodex_kimi.py
    ```
 
-   Add `--provider-test` only when it is acceptable to call Kimi's provider metadata endpoint.
+   Add `--provider-test` only when it is acceptable to call Kimi's provider metadata endpoint. Add `--ocx-cli` only after the relevant backup to run `ocx status` and model selection; neither flag is part of the strict default.
 
 2. Read `references/runbook.md` for the relevant path:
 
@@ -57,5 +57,5 @@ Use these checks before claiming success:
 
 ## Resource map
 
-- `scripts/diagnose_opencodex_kimi.py`: read-only local status and catalog diagnostic; safe to share.
+- `scripts/diagnose_opencodex_kimi.py`: strict read-only default diagnostic; `--ocx-cli`, `--provider-test`, and `--responses-canary` are explicit opt-ins.
 - `references/runbook.md`: **Kimi Code API Key (Token) application and safe entry**, setup, migration, fake-IP repair, K3 1M registration, usage, rollback, and troubleshooting steps.

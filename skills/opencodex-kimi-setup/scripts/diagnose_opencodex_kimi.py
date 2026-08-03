@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only OpenCodex + Kimi Code diagnostic.
+"""Strict read-only-by-default OpenCodex + Kimi Code diagnostic.
 
 The script reports only credential shape/status. It never prints API keys,
-OAuth token values, or full config files.
+OAuth token values, or full config files. By default it never starts `ocx`
+or `codex`; those CLIs are explicit opt-ins.
 """
 
 from __future__ import annotations
@@ -237,6 +238,11 @@ def codex_auth_check(home: pathlib.Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only OpenCodex + Kimi Code diagnostic")
+    parser.add_argument(
+        "--ocx-cli",
+        action="store_true",
+        help="Run `ocx status` and `ocx models selected kimi-code` (explicit opt-in)",
+    )
     parser.add_argument("--provider-test", action="store_true", help="Run `ocx provider test kimi-code`")
     parser.add_argument(
         "--responses-canary",
@@ -267,17 +273,27 @@ def main() -> int:
             "model": args.responses_model,
             "billable_real_model_call": args.responses_canary,
         },
+        "ocx_cli": {
+            "requested": args.ocx_cli,
+            "ran": False,
+            "note": "skipped by default; pass --ocx-cli to run ocx status and model selection",
+        },
     }
 
-    if tools["ocx"]:
-        report["ocx_status"] = run_cmd(["ocx", "status"], args.timeout, tools["ocx"])
-        report["ocx_models_selected_kimi_code"] = run_cmd(
-            ["ocx", "models", "selected", "kimi-code"], args.timeout, tools["ocx"]
-        )
-        if args.provider_test:
-            report["ocx_provider_test_kimi_code"] = run_cmd(
-                ["ocx", "provider", "test", "kimi-code"], args.timeout, tools["ocx"]
+    if args.ocx_cli:
+        report["ocx_cli"]["ran"] = bool(tools["ocx"])
+        if tools["ocx"]:
+            report["ocx_status"] = run_cmd(["ocx", "status"], args.timeout, tools["ocx"])
+            report["ocx_models_selected_kimi_code"] = run_cmd(
+                ["ocx", "models", "selected", "kimi-code"], args.timeout, tools["ocx"]
             )
+        else:
+            report["ocx_cli"]["reason"] = "ocx not found"
+
+    if args.provider_test:
+        report["ocx_provider_test_kimi_code"] = run_cmd(
+            ["ocx", "provider", "test", "kimi-code"], args.timeout, tools["ocx"]
+        )
 
     if args.responses_canary:
         canary = run_cmd(
