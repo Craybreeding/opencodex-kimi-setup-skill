@@ -12,6 +12,14 @@ Prefer the `kimi-code` provider:
 
 `k3[1m]` may need manual custom registration because live discovery can omit it even when the provider is reachable. Registration does not prove the account has 1M entitlement; the first real model request confirms that.
 
+All three Kimi Code catalog entries must advertise `input_modalities` as `text,image`:
+
+- `kimi-code/k3`
+- `kimi-code/k3[1m]`
+- `kimi-code/kimi-for-coding`
+
+If K3 1M is present but only advertises `text`, image UI/input gating is wrong even though the provider can accept images. Repair the custom entry metadata before making a paid image request.
+
 ## Preflight
 
 Run from the skill folder:
@@ -123,7 +131,7 @@ If `ocx provider test kimi-code` is connected but the OpenCodex-routed catalog l
 ocx models add kimi-code 'k3[1m]' \
   --display-name 'Kimi K3 1M' \
   --context-window 1000000 \
-  --modalities text
+  --modalities text,image
 ocx sync
 ```
 
@@ -134,6 +142,42 @@ ocx models list-custom
 ocx models selected kimi-code
 python3 scripts/diagnose_opencodex_kimi.py
 ```
+
+If an existing custom entry is incorrectly registered as text-only, back up configuration first, then remove only that exact provider/model target and re-add it with `text,image`:
+
+```bash
+ocx models remove 'kimi-code/k3[1m]' --yes
+ocx models add kimi-code 'k3[1m]' \
+  --display-name 'Kimi K3 1M' \
+  --context-window 1000000 \
+  --modalities text,image
+```
+
+Do not re-register `kimi-code/k3` or `kimi-code/kimi-for-coding` when their catalog entries already advertise `text,image`.
+
+## Verify runtime model identity
+
+When a Kimi-backed session is asked which model it is, verify a real response distinguishes three dynamic values rather than treating the local selector as an upstream ID:
+
+- provider: `kimi-code`
+- upstream wire model ID: for example `k3` when the local selector is `k3[1m]` and the provider strips the bracket suffix
+- local selector: for example `k3[1m]`
+
+The identity context must be derived from the final routed provider/model for that request, not hard-coded to the default. Never include an API key, OAuth token, or full config in this context or in test output. A real model call can be billable; obtain explicit approval before making it.
+
+## Codex 0.146 custom agent role
+
+Codex 0.146 role files require `developer_instructions`; `instructions` is rejected. For a bounded Luna execution worker, create `~/.codex/agents/luna-worker.toml` only after backing up existing agent files:
+
+```toml
+name = "luna_worker"
+model = "gpt-5.6-luna"
+model_reasoning_effort = "max"
+description = "Executes bounded, independently completable implementation tasks under a primary agent."
+developer_instructions = "Accept only clear, independently completable execution tasks. Preserve existing workspace changes. Do not alter overall goals, make primary-agent decisions, widen scope, or overwrite unrelated configuration. When images are provided, inspect and process them only within the assigned scope. Escalate ambiguous or high-impact decisions to the primary agent; never substitute for primary-agent decision making."
+```
+
+Do not set or change `default_subagent_model`; selecting this named role must not alter existing executor/verifier routing. Validate TOML with `tomllib` and use `codex --strict-config doctor` without starting a task.
 
 ## Fix Clash fake-IP blocking
 

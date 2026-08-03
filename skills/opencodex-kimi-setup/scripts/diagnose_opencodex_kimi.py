@@ -128,6 +128,72 @@ def read_json(path: pathlib.Path) -> Any | None:
         return None
 
 
+def catalog_model_records(data: Any) -> list[tuple[str, dict[str, Any]]]:
+    """Return catalog model records from current and older OpenCodex catalog shapes."""
+    if not isinstance(data, dict):
+        return []
+    models = data.get("models")
+    if isinstance(models, list):
+        return [("", model) for model in models if isinstance(model, dict)]
+    if isinstance(models, dict):
+        return [(key, model) for key, model in models.items() if isinstance(key, str) and isinstance(model, dict)]
+    return []
+
+
+def catalog_model_aliases(key: str, model: dict[str, Any]) -> set[str]:
+    aliases = {key} if key else set()
+    for field in ("slug", "id", "modelId", "model_id"):
+        value = model.get(field)
+        if isinstance(value, str):
+            aliases.add(value)
+    provider = model.get("provider")
+    model_id = model.get("model")
+    if isinstance(provider, str) and isinstance(model_id, str):
+        aliases.add(f"{provider}/{model_id}")
+    return aliases
+
+
+def catalog_modalities(model: dict[str, Any]) -> list[str] | None:
+    raw = model.get("input_modalities", model.get("inputModalities"))
+    if isinstance(raw, str):
+        return [part.strip().lower() for part in raw.split(",") if part.strip()]
+    if isinstance(raw, list) and all(isinstance(part, str) for part in raw):
+        return [part.lower() for part in raw]
+    return None
+
+
+def catalog_model_modalities(data: Any) -> dict[str, dict[str, Any]]:
+    """Report target-model input modalities without exposing whole catalog records."""
+    records = catalog_model_records(data)
+    report: dict[str, dict[str, Any]] = {}
+    for target in TARGET_MODELS:
+        matches = [model for key, model in records if target in catalog_model_aliases(key, model)]
+        if not matches:
+            report[target] = {
+                "present": False,
+                "input_modalities": None,
+                "image_capable": False,
+                "status": "missing_or_legacy_catalog",
+            }
+            continue
+        modalities = catalog_modalities(matches[-1])
+        if modalities is None:
+            report[target] = {
+                "present": True,
+                "input_modalities": None,
+                "image_capable": False,
+                "status": "modalities_missing",
+            }
+            continue
+        report[target] = {
+            "present": True,
+            "input_modalities": modalities,
+            "image_capable": "image" in modalities,
+            "status": "image_capable" if "image" in modalities else "image_missing",
+        }
+    return report
+
+
 def dns_check(timeout: int) -> dict[str, Any]:
     if sys.platform == "darwin" and shutil.which("dscacheutil"):
         result = run_cmd(["dscacheutil", "-q", "host", "-a", "name", "api.kimi.com"], timeout)
@@ -202,6 +268,7 @@ def catalog_check(home: pathlib.Path) -> dict[str, Any]:
         "exists": path.exists(),
         "valid_json": data is not None,
         "models": {model: model in blob for model in TARGET_MODELS},
+        "model_modalities": catalog_model_modalities(data),
     }
 
 

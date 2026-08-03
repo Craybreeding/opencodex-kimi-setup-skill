@@ -19,6 +19,9 @@ The skill is designed for agents and humans who need a repeatable, auditable set
   - `kimi-code/kimi-for-coding`
 - Clash / Clash Verge Rev fake-IP repair for `api.kimi.com`.
 - Manual K3 1M custom model registration.
+- K3, K3 1M, and kimi-for-coding image-input catalog metadata (`text,image`).
+- Runtime model-identity checks that distinguish Kimi provider, upstream wire model ID, and local selector.
+- Codex 0.146 bounded Luna worker-role guidance using `developer_instructions`.
 - Codex Desktop and CLI switching guidance.
 - GPT/OpenAI rollback with `ocx restore`, `ocx restore back`, and `ocx stop`.
 - Read-only diagnostics that redact secret-like output.
@@ -59,6 +62,10 @@ The default diagnostic is strict read-only: it does not start `ocx` or `codex`, 
 ```bash
 python3 skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py --ocx-cli
 ```
+
+The default report includes `codex_catalog.model_modalities` for `kimi-code/k3`, `kimi-code/k3[1m]`, and `kimi-code/kimi-for-coding`. Each must be `text,image` and `image_capable: true`; a K3 1M custom entry with only `text` needs the runbook's minimal registration repair before any paid image test.
+
+The runbook also documents how to verify model self-identification without conflating the local selector (such as `k3[1m]`) with the upstream wire model (such as `k3`), and the Codex 0.146 `developer_instructions` schema for the bounded `gpt-5.6-luna` worker role.
 
 ## Safety boundaries
 
