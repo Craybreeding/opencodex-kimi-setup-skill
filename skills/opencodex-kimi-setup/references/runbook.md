@@ -155,6 +155,25 @@ ocx models add kimi-code 'k3[1m]' \
 
 Do not re-register `kimi-code/k3` or `kimi-code/kimi-for-coding` when their catalog entries already advertise `text,image`.
 
+## Static catalog versus running proxy catalog
+
+OpenCodex has two relevant model views:
+
+1. `~/.codex/opencodex-catalog.json` is the on-disk Codex catalog.
+2. `GET http://127.0.0.1:10100/v1/models?client_version=...` is the catalog currently served by the running proxy to Codex.
+
+The plain `GET /v1/models` OpenAI availability list may omit `input_modalities`; use the `client_version` query when checking image gating. After `ocx models add`, remove/re-add, or a config edit, the disk file can show `text,image` while an already-running proxy still serves an older in-memory row such as `Kimi K3 1M -> text`. That is the specific failure mode behind “the model is visible but image input is rejected.”
+
+Check both views without printing credentials:
+
+```bash
+python3 scripts/diagnose_opencodex_kimi.py
+curl -fsS 'http://127.0.0.1:10100/v1/models?client_version=diagnostic' \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); wanted={"kimi-code/k3","kimi-code/k3[1m]","kimi-code/kimi-for-coding"}; print([(m.get("slug"),m.get("input_modalities")) for m in d.get("models",[]) if m.get("slug") in wanted])'
+```
+
+If the disk view is correct but the runtime view reports `k3[1m]` as `text` or omits it, back up the affected config and refresh only the OpenCodex proxy using the installed command (`ocx restart`, or the service's equivalent). This briefly interrupts the proxy but does not require restarting Codex Desktop. Re-run the `client_version` check and `ocx sync`; accept any Desktop restart separately because it interrupts the active session. Do not treat `ocx models list-custom` alone as proof that the running process has reloaded the metadata.
+
 ## Verify runtime model identity
 
 When a Kimi-backed session is asked which model it is, verify a real response distinguishes three dynamic values rather than treating the local selector as an upstream ID:

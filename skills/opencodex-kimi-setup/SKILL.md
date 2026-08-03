@@ -19,9 +19,10 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
 6. Do not restart Codex Desktop, `ocx restore`, `ocx stop`, or uninstall anything unless the user explicitly accepts the interruption or rollback.
 7. Prefer `kimi-code` for these model IDs: `k3`, `k3[1m]`, `kimi-for-coding`. Avoid mixing this up with the `moonshot` provider unless the user specifically has a Moonshot Platform key and wants that endpoint.
 8. Treat `kimi-code/k3`, `kimi-code/k3[1m]`, and `kimi-code/kimi-for-coding` as image-capable catalog entries: their `input_modalities` must be `text,image`. A K3 1M custom entry marked only `text` gates image input even if the provider supports it.
-9. For model self-identification, record the final-route provider, upstream wire model ID, and local selector separately. Do not hard-code the default or expose credentials; a bracketed local selector can map to a different wire ID.
-10. For a Codex 0.146 custom agent role, use `developer_instructions` (not `instructions`). A bounded Luna worker must preserve workspace changes, stay within its assigned execution scope, and never replace primary-agent decisions or change the default subagent model.
-11. A Codex Desktop or installation-feedback failure at `http://127.0.0.1:10100/v1/responses` with HTTP 502 can be a Desktop realtime/WebSocket-to-proxy compatibility issue. If `ocx provider test kimi-code` is connected and CLI HTTP requests work, do not ask the user to re-enter their Kimi Code key; restore native Codex with `ocx restore` after the required backup, while leaving OpenCodex running.
+9. Treat the running proxy catalog as a separate source of truth: verify `GET /v1/models?client_version=...`, not only `~/.codex/opencodex-catalog.json`. A custom-model edit can update disk state while an already-running proxy keeps stale in-memory modalities; if runtime K3 1M is still `text`, refresh the proxy before testing images.
+10. For model self-identification, record the final-route provider, upstream wire model ID, and local selector separately. Do not hard-code the default or expose credentials; a bracketed local selector can map to a different wire ID.
+11. For a Codex 0.146 custom agent role, use `developer_instructions` (not `instructions`). A bounded Luna worker must preserve workspace changes, stay within its assigned execution scope, and never replace primary-agent decisions or change the default subagent model.
+12. A Codex Desktop or installation-feedback failure at `http://127.0.0.1:10100/v1/responses` with HTTP 502 can be a Desktop realtime/WebSocket-to-proxy compatibility issue. If `ocx provider test kimi-code` is connected and CLI HTTP requests work, do not ask the user to re-enter their Kimi Code key; restore native Codex with `ocx restore` after the required backup, while leaving OpenCodex running.
 
 ## Workflow
 
@@ -40,7 +41,7 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
    - cc-switch migration or cleanup
    - Clash fake-IP repair
    - K3 1M custom model registration
-   - Kimi catalog image modalities, runtime model-identity verification, and Codex 0.146 agent roles
+   - Kimi catalog image modalities, runtime catalog refresh, model-identity verification, and Codex 0.146 agent roles
    - UI/CLI switching and GPT rollback
    - Desktop `502` troubleshooting and verification
 
@@ -54,6 +55,7 @@ Use these checks before claiming success:
 - `ocx models selected kimi-code` includes `k3`, `k3[1m]`, and `kimi-for-coding`.
 - Only while Codex is routed through OpenCodex (for example, after `ocx restore back`), its catalog contains `kimi-code/k3`, `kimi-code/k3[1m]`, and `kimi-code/kimi-for-coding`. Native Codex after `ocx restore` can intentionally omit them; use `ocx opencode` for Kimi unless the user explicitly switches back.
 - The diagnostic's structured `codex_catalog.model_modalities` reports every target's `input_modalities` and `image_capable`; repair a K3 1M custom entry that reports only `text` before testing image input.
+- The diagnostic's `runtime_catalog.model_modalities` also reports the live proxy response. If it is `stale_runtime_metadata` while the disk catalog is correct, refresh/restart only the OpenCodex proxy after the required interruption approval, then recheck before touching Codex Desktop.
 - `api.kimi.com` resolves only to public IPs; `198.18.0.0/15`, `fdfe:dcba:9876::/48`, IPv6 ULA, private, loopback, or other non-global answers are all blockers for OpenCodex provider destination checks.
 - `ocx status` shows default provider remains `openai` unless the user explicitly changed it.
 - Safe rollback commands are available: `ocx restore`, `ocx restore back`, and `ocx stop`.

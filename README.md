@@ -65,6 +65,8 @@ python3 skills/opencodex-kimi-setup/scripts/diagnose_opencodex_kimi.py --ocx-cli
 
 The default report includes `codex_catalog.model_modalities` for `kimi-code/k3`, `kimi-code/k3[1m]`, and `kimi-code/kimi-for-coding`. Each must be `text,image` and `image_capable: true`; a K3 1M custom entry with only `text` needs the runbook's minimal registration repair before any paid image test.
 
+It also checks the running proxy at `GET /v1/models?client_version=diagnostic`. If the disk catalog is correct but `runtime_catalog.status` is `stale_runtime_metadata`, the proxy process has an old in-memory model catalog; refresh the proxy and rerun the check. The plain OpenAI-shaped `/v1/models` response is an availability list and may omit capability metadata, so do not use it to decide image support.
+
 The runbook also documents how to verify model self-identification without conflating the local selector (such as `k3[1m]`) with the upstream wire model (such as `k3`), and the Codex 0.146 `developer_instructions` schema for the bounded `gpt-5.6-luna` worker role.
 
 ## Safety boundaries

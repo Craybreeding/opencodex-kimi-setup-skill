@@ -16,6 +16,8 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from typing import Any
 
 
@@ -272,6 +274,55 @@ def catalog_check(home: pathlib.Path) -> dict[str, Any]:
     }
 
 
+def runtime_catalog_check(timeout: int) -> dict[str, Any]:
+    """Read the running proxy's Codex catalog without starting or mutating it."""
+    url = "http://127.0.0.1:10100/v1/models?client_version=diagnostic"
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        return {
+            "reachable": False,
+            "http_status": exc.code,
+            "status": "auth_required" if exc.code in {401, 403} else "http_error",
+            "model_modalities": {},
+        }
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", None)
+        return {
+            "reachable": False,
+            "http_status": None,
+            "status": "unreachable",
+            "reason": str(reason)[:160] if reason else type(exc).__name__,
+            "model_modalities": {},
+        }
+
+    try:
+        data = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "reachable": True,
+            "http_status": status,
+            "status": "invalid_json",
+            "model_modalities": {},
+        }
+
+    report = catalog_model_modalities(data)
+    stale = (
+        report.get("kimi-code/k3[1m]", {}).get("image_capable") is False
+        and report.get("kimi-code/k3[1m]", {}).get("present") is True
+    )
+    return {
+        "reachable": True,
+        "http_status": status,
+        "status": "stale_runtime_metadata" if stale else "ok",
+        "model_modalities": report,
+        "static_runtime_drift_hint": stale,
+    }
+
+
 def opencodex_config_check(home: pathlib.Path) -> dict[str, Any]:
     path = home / ".opencodex" / "config.json"
     data = read_json(path)
@@ -334,6 +385,7 @@ def main() -> int:
         "codex_auth": codex_auth_check(home),
         "opencodex_config": opencodex_config_check(home),
         "codex_catalog": catalog_check(home),
+        "runtime_catalog": runtime_catalog_check(args.timeout),
         "responses_canary": {
             "requested": args.responses_canary,
             "ran": False,
