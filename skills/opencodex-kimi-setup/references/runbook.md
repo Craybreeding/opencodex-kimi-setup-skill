@@ -243,6 +243,24 @@ ocx sync
 
 Do not set `allowPrivateNetwork: true` as the routine fix. It weakens OpenCodex's destination protection and can mask DNS/proxy errors.
 
+## Windows non-ASCII account ACL compatibility
+
+OpenCodex 2.8.0 can fail closed with `ACL hardening failed (EICACLS)` on Windows accounts whose username/path contains non-ASCII characters. Do not bypass this by writing a Kimi key into an unhardened config. First confirm the volume is NTFS and `icacls` works for the current SID. Then use an ASCII `OPENCODEX_HOME` (for example `C:\Users\Public\OpenCodex`) and launch OpenCodex with process-scoped `USERDOMAIN=` and `USERNAME=*<current-user-SID>` so `icacls` receives a locale-independent identity. Keep the Windows login account unchanged.
+
+When installing the Task Scheduler service, add the same process-scoped SID environment lines to the generated service wrapper before testing autostart; otherwise the service can start under the real localized username and fail ACL hardening again. Back up the wrapper/config first, verify the service log has no ACL error, then verify provider connectivity and both model catalogs. Reapply the wrapper workaround after an OpenCodex service reinstall or update.
+
+## Codex Desktop WebSocket 502 / 426
+
+OpenCodex leaves the Responses WebSocket transport off by default. When Codex tries `ws://127.0.0.1:10100/v1/responses` and receives a connect-time `426 Upgrade Required`, newer clients should fall back to HTTP for that session. A client that instead reconnects repeatedly or surfaces `502 Bad Gateway` needs the proxy-side WebSocket opt-in.
+
+Back up `~/.opencodex/config.json` (or the active `OPENCODEX_HOME` config) first, then set only:
+
+```json
+"websockets": true
+```
+
+Restart only the OpenCodex proxy/service and rerun the approved Responses canary. A post-fix canary that logs `Falling back from WebSockets to HTTPS transport` and then reaches a provider-specific `401` is a different auth problem; the original 426/502 transport blocker is resolved. Do not restart Codex Desktop without interruption approval, and do not change the Kimi key based on this transport error.
+
 ## Codex UI and CLI switching
 
 When Codex is routed through OpenCodex, Codex Desktop may need a restart or `ocx sync --restart-codex` before its model UI sees a refreshed catalog. Do not run the restart command mid-task unless the user accepts interruption.

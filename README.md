@@ -10,6 +10,10 @@ It captures the failure mode where model switchers or DNS/proxy setups break Cod
 
 The skill is designed for agents and humans who need a repeatable, auditable setup path.
 
+## Platforms
+
+Validated on macOS and Windows. Windows setup includes a non-ASCII account ACL workaround and Task Scheduler persistence notes; Codex Desktop `502`/`426` compatibility has a proxy-side WebSocket opt-in documented in the runbook.
+
 ## What it supports
 
 - Kimi Code API key setup without printing secrets.
@@ -23,6 +27,8 @@ The skill is designed for agents and humans who need a repeatable, auditable set
 - Runtime model-identity checks that distinguish Kimi provider, upstream wire model ID, and local selector.
 - Codex 0.146 bounded Luna worker-role guidance using `developer_instructions`.
 - Codex Desktop and CLI switching guidance.
+- Windows non-ASCII account ACL compatibility with ASCII `OPENCODEX_HOME`, process-scoped SID identity, and Task Scheduler service guidance.
+- Codex Desktop `502`/`426` Responses transport repair through OpenCodex `websockets: true`.
 - GPT/OpenAI rollback with `ocx restore`, `ocx restore back`, and `ocx stop`.
 - Read-only diagnostics that redact secret-like output.
 
