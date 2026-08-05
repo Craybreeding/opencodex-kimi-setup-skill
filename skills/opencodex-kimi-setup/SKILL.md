@@ -1,6 +1,6 @@
 ---
 name: opencodex-kimi-setup
-description: Safely install, migrate, configure, diagnose, and verify OpenCodex with Kimi Code models (`kimi-code/k3`, `kimi-code/k3[1m]`, `kimi-code/kimi-for-coding`) while preserving native GPT/OpenAI fallback. Use when replacing or avoiding cc-switch, adding a Kimi Code API key, fixing Clash or Clash Verge fake-IP DNS blocking `api.kimi.com`, registering K3 1M as a custom model, syncing Codex model catalogs, or recovering from broken Codex OAuth/auth after model-switcher experiments.
+description: Safely install, migrate, configure, diagnose, and verify OpenCodex with Kimi Code models (`kimi-code/k3`, `kimi-code/k3[1m]`, `kimi-code/kimi-for-coding`) while preserving native GPT/OpenAI fallback, plus DeepSeek as a manual-switch and failover provider. Use when replacing or avoiding cc-switch, adding a Kimi Code API key, fixing Clash or Clash Verge fake-IP DNS blocking `api.kimi.com`/`api.moonshot.cn`, registering K3 1M as a custom model, building combo failover chains (Kimi → DeepSeek → OpenAI), interpreting `ocx provider quota` percentages, fixing DeepSeek tool-schema 400s (`type: null`), or recovering from broken Codex OAuth/auth after model-switcher experiments.
 ---
 
 # OpenCodex Kimi Setup
@@ -24,6 +24,11 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
 11. For a Codex 0.146 custom agent role, use `developer_instructions` (not `instructions`). A bounded Luna worker must preserve workspace changes, stay within its assigned execution scope, and never replace primary-agent decisions or change the default subagent model.
 12. A Codex Desktop or installation-feedback failure at `http://127.0.0.1:10100/v1/responses` with HTTP 502 can be a Desktop realtime/WebSocket-to-proxy compatibility issue. If `ocx provider test kimi-code` is connected and CLI HTTP requests work, do not ask the user to re-enter their Kimi Code key; restore native Codex with `ocx restore` after the required backup, while leaving OpenCodex running. For a connect-time `426 Upgrade Required` from `ws://127.0.0.1:10100/v1/responses` with no successful fallback, first check whether OpenCodex has `websockets: true`; Codex clients that do not implement the 426-to-HTTP fallback need that proxy-side opt-in.
 13. On Windows, OpenCodex ACL hardening can fail for non-ASCII user accounts or paths. Use an ASCII `OPENCODEX_HOME` and process-scoped `USERDOMAIN=` plus `USERNAME=*<current-user-SID>`; add the same environment lines to a generated Task Scheduler wrapper before testing autostart. Never bypass the ACL protection by storing keys in an unhardened config.
+14. Changing the model picker is not changing the route. A 403 from `127.0.0.1:10100/v1/responses` while a native model (for example `gpt-5.6-luna`) is selected means `openai_base_url` still points at the proxy. Use `ocx restore` to leave the proxy route and `ocx restore back` to return. With `codexAutoStart: true` (the default), OpenCodex re-injects `openai_base_url` and `model_catalog_json` into `~/.codex/config.toml` when Codex launches, so a manual `ocx restore` silently reverts on the next Codex start; check the file, not the picker. Running Codex threads keep the route they started with; only new threads pick up a switch.
+15. `ocx provider quota --json` percentages are **used**, not remaining. Kimi Code exposes a 5-hour window and a weekly window; the "usage limit for this billing cycle" 403 (`access_terminated_error`) is typically the 5-hour window, which resets on its own.
+16. Combo failover only triggers when the requested model ID exactly matches the combo alias. Aliases allow only letters, numbers, dot, underscore, hyphen, and at most one `/` — so a `k3[1m]` custom entry can never be its own alias; create a separate alias such as `kimi-code/k3-1m`. Combo members are resolved from live-discovered models only: custom models merge later, so a combo whose member is a custom model is omitted from the catalog as "member capabilities are incomplete" until the provider uses static discovery (`ocx provider edit kimi-code --live-models off`). Quota-exhaustion 403 and 502/429/5xx hop to the next target; 400-class validation errors do not.
+17. DeepSeek (`api.deepseek.com`) strictly validates function schemas and rejects Codex tools whose `type` is `null` (root or nested), returning `Provider error 400: Invalid schema for function 'codex_app__automation_update'` on every turn, which looks like a hang. Fixed upstream by opencodex PR #933; for 2.10.0 and earlier, apply the local `openai-chat.ts` patch from the runbook and re-check after every `ocx update`. DeepSeek models are text-only (no vision) and slow (~50-100 output tok/s with heavy reasoning); keep effort at the default/high and prefer them as failover targets or bounded small tasks, not as the daily driver. `deepseek-v4-flash` generates very long reasoning traces (several thousand tokens) before answering.
+18. Keep the `moonshot` provider (Moonshot Open Platform, pay-per-token balance) distinct from `kimi-code` (Kimi Code subscription quota). Prefer `https://api.moonshot.ai/v1` over `api.moonshot.cn`: the `.cn` hostname can resolve to Clash fake-IP (`198.18.0.0/15`) and be blocked by destination policy even with `allowPrivateNetwork` on, while `.ai` resolves publicly. Do not add provider hosts to `NO_PROXY` to work around fake-IP.
 
 ## Workflow
 
@@ -45,6 +50,7 @@ Configure OpenCodex as the local Codex provider proxy for Kimi Code without sacr
    - Kimi catalog image modalities, runtime catalog refresh, model-identity verification, and Codex 0.146 agent roles
    - UI/CLI switching and GPT rollback
    - Desktop `502` troubleshooting and verification
+   - DeepSeek provider setup, combo failover chains, quota semantics, and the DeepSeek tool-schema 400 patch
 
 3. Apply only the smallest necessary change, then run the diagnostic script again and capture a redacted summary.
 
@@ -60,6 +66,8 @@ Use these checks before claiming success:
 - `api.kimi.com` resolves only to public IPs; `198.18.0.0/15`, `fdfe:dcba:9876::/48`, IPv6 ULA, private, loopback, or other non-global answers are all blockers for OpenCodex provider destination checks.
 - `ocx status` shows default provider remains `openai` unless the user explicitly changed it.
 - Safe rollback commands are available: `ocx restore`, `ocx restore back`, and `ocx stop`.
+- If combo failover is configured, `ocx combo list` shows the alias, the alias appears in the routed catalog after `ocx sync`, and a real request through the alias returns `status: completed` from the first target.
+- If DeepSeek is enabled, `ocx provider test deepseek` returns connected, and a tool-bearing request (a function whose `parameters` root `type` is `null`) completes without a schema 400.
 - When Desktop reports a `127.0.0.1:10100/v1/responses` 502, run `python3 scripts/diagnose_opencodex_kimi.py --responses-canary --responses-model gpt-5.5`; native `codex exec -s read-only -m gpt-5.5` should work after `ocx restore`, and the OpenCodex proxy should remain available for `ocx opencode` or a deliberate `ocx restore back` switch.
 - No secret-like strings are present in created notes, skills, logs, or commits.
 

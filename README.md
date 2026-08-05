@@ -21,6 +21,9 @@ Validated on macOS and Windows. Windows setup includes a non-ASCII account ACL w
   - `kimi-code/k3`
   - `kimi-code/k3[1m]`
   - `kimi-code/kimi-for-coding`
+- DeepSeek (`deepseek-v4-flash` / `deepseek-v4-pro`) as a manual picker entry and as a combo failover target, including its tool-schema `type: null` 400 fix (upstream PR #933) and its throughput/effort caveats.
+- Combo failover chains (Kimi → DeepSeek → native OpenAI) with alias-matching and live-discovery rules.
+- Quota semantics (`ocx provider quota` reports used percentages) and route switching (`ocx restore` / `restore back` vs `codexAutoStart` re-injection).
 - Clash / Clash Verge Rev fake-IP repair for `api.kimi.com`.
 - Manual K3 1M custom model registration.
 - K3, K3 1M, and kimi-for-coding image-input catalog metadata (`text,image`).

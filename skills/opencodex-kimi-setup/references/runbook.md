@@ -342,6 +342,125 @@ codex exec -s read-only -m gpt-5.5 'Reply exactly: native-ok'
 
 Continue using Kimi/OpenCode through `ocx opencode`. Only when the user explicitly needs Codex routed through the running OpenCodex proxy again, switch back with `ocx restore back`; that reintroduces the Desktop compatibility risk and should be followed by the relevant model and transport checks.
 
+## DeepSeek provider: manual switch and failover target
+
+DeepSeek (`https://api.deepseek.com`) is a pay-per-token API-key provider, separate from both the Kimi Code subscription and the Codex/OpenAI quota. It is useful as a manual fallback entry in the Codex model picker and as a middle hop in combo failover chains.
+
+Add its key silently and select the visible models:
+
+```bash
+read -s DEEPSEEK_KEY
+printf '%s\n' "$DEEPSEEK_KEY" | ocx account add-key deepseek --label "DeepSeek"
+unset DEEPSEEK_KEY
+ocx provider selected deepseek --set deepseek-v4-flash,deepseek-v4-pro
+ocx sync
+```
+
+Operational notes, measured on 2.10.0:
+
+- Both v4 models are text-only; image threads must use a Kimi `text,image` entry or a native OpenAI model.
+- Generation throughput is roughly 50 tok/s (`deepseek-v4-pro`) to 100 tok/s (`deepseek-v4-flash`), and `deepseek-v4-flash` can emit several thousand reasoning tokens before answering. Long agentic turns routinely take 20-60 s. This is upstream speed, not a proxy problem; do not troubleshoot the pipeline for it.
+- Lowering reasoning effort does not reliably shorten DeepSeek answers; keep the default/high effort and prefer `deepseek-v4-pro` over `deepseek-v4-flash` when latency matters.
+
+## Combo failover chains
+
+`ocx combo` builds virtual models that hop to the next target when the current one returns a hop-eligible error (401, 403 including quota-exhaustion `access_terminated_error`, 404, 408, 429, 5xx). Validation 400s stop the chain.
+
+Example: Kimi K3 1M first, DeepSeek second, native OpenAI last:
+
+```bash
+ocx combo set k3-1m-fallback \
+  --targets 'kimi-code/k3[1m]:1,deepseek/deepseek-v4-flash:1,openai/gpt-5.6-sol:1' \
+  --strategy failover --sticky 1 --effort high \
+  --alias 'kimi-code/k3-1m'
+ocx sync
+```
+
+Rules that bite:
+
+- The chain only engages when the requested model ID **exactly equals the alias**. A session using the raw custom entry `kimi-code/k3[1m]` ("Kimi K3 1M" in the picker) bypasses every combo. Aliases accept only letters, numbers, dot, underscore, hyphen, and at most one `/`, so `kimi-code/k3[1m]` itself can never be an alias; use a parallel alias such as `kimi-code/k3-1m` and select that entry in the picker.
+- Combo members are resolved from **live-discovered** provider models only; custom models merge later in the pipeline. A combo containing `kimi-code/k3[1m]` is omitted from the catalog with "member capabilities are incomplete" until `kimi-code` uses static discovery:
+
+  ```bash
+  ocx provider edit kimi-code --live-models off
+  ocx sync
+  ```
+
+  Trade-off: newly released Kimi models must be added manually while live discovery is off.
+- When an alias shadows a real provider model ID (for example alias `kimi-code/k3`), the combo wins and the raw entry disappears from the picker — expected behavior.
+- The combo catalog entry advertises the intersection of member modalities, which is `text` when DeepSeek is a member; use the raw Kimi entry for image work.
+
+Verify the chain end to end:
+
+```bash
+curl -s -X POST http://127.0.0.1:10100/v1/responses \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer dummy' \
+  -d '{"model":"kimi-code/k3-1m","input":"say ok","max_output_tokens":16}'
+```
+
+A `status: completed` response whose `model` field shows the first target (`k3[1m]`) confirms alias → combo → provider routing.
+
+## Quota semantics and route switching
+
+`ocx provider quota --json` reports **used** percentages, not remaining:
+
+- `kimi-code`: `fiveHourPercent` (5-hour window) and `weeklyPercent`. The Kimi Code `access_terminated_error` 403 ("usage limit for this billing cycle") is usually the 5-hour window; it resets by itself within hours.
+- `openai` (Codex login): `weeklyPercent` for the ChatGPT plan.
+
+Route switching facts:
+
+- `ocx restore` removes the OpenCodex-injected `openai_base_url` and `model_catalog_json` from `~/.codex/config.toml` (native OpenAI); `ocx restore back` re-injects them; `ocx stop` additionally stops the proxy.
+- With `codexAutoStart: true` (default), launching Codex re-points the config at the proxy automatically. A manual `ocx restore` therefore reverts on the next Codex start. Always verify by reading `~/.codex/config.toml`, never by the model picker.
+- Running Codex threads keep the route they started with; route changes only affect new threads.
+- A simple external watcher can automate this: poll `ocx provider quota --json` on an interval, run `ocx restore` when the Kimi 5-hour or weekly used percentage crosses ~95%, and `ocx restore back` when it falls back (for example 5-hour ≤ 50% and weekly ≤ 80%). Only switch back automatically when the watcher itself did the switch, so manual routing choices are respected.
+
+## DeepSeek tool-schema 400 (`type: null`)
+
+DeepSeek strictly validates function schemas. Codex tools can carry `type: null` at the schema root (for example `codex_app__automation_update`) or nested inside `anyOf` branches. DeepSeek rejects these on every turn:
+
+```text
+Provider error 400: Invalid schema for function 'codex_app__automation_update':
+schema must be a JSON Schema of 'type: "object"', got 'type: null'.
+```
+
+Because Codex re-sends the full tool catalog each turn, the session looks hung while every request fails with the same 400.
+
+Upstream fix: opencodex PR #933 (merged into `main` on 2026-08-05) generalizes schema normalization to all providers and recursively rewrites null types. Once a release newer than 2.10.0 ships, `ocx update` is the whole fix.
+
+For 2.10.0 and earlier, patch the running source (Bun executes the TypeScript directly):
+
+1. Back up `src/adapters/openai-chat.ts` inside the installed package (`$(npm root -g)/@bitkyc08/opencodex/src/adapters/openai-chat.ts`).
+2. Add a DeepSeek branch to `toolsToChatFormat`, reusing the existing Kimi normalizer plus a recursive null-type rewrite:
+
+   ```ts
+   function isDeepSeekSchemaTarget(provider: OcxProviderConfig): boolean {
+     try {
+       return new URL(provider.baseUrl).hostname === "api.deepseek.com";
+     } catch {
+       return false;
+     }
+   }
+
+   function sanitizeDeepSeekNullTypes(value: unknown): unknown {
+     if (Array.isArray(value)) return value.map(sanitizeDeepSeekNullTypes);
+     if (!value || typeof value !== "object") return value;
+     const out: Record<string, unknown> = {};
+     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+       out[key] = key === "type" && child === null ? "object" : sanitizeDeepSeekNullTypes(child);
+     }
+     return out;
+   }
+
+   function ensureDeepSeekToolParameters(parameters: unknown): Record<string, unknown> {
+     return ensureKimiRootObjectType(sanitizeDeepSeekNullTypes(parameters));
+   }
+   ```
+
+   In `toolsToChatFormat`, add `deepseekTarget ? ensureDeepSeekToolParameters(t.parameters)` to the parameter selection chain.
+3. `ocx restart`, then re-run a tool-bearing DeepSeek request (a function with `"parameters": {"type": null, ...}`) and confirm it no longer 400s.
+
+`ocx update` overwrites `node_modules`; re-check the patch after every upgrade until a release includes PR #933.
+
 ## Completion checklist
 
 - `ocx provider test kimi-code` is connected.
@@ -350,5 +469,8 @@ Continue using Kimi/OpenCode through `ocx opencode`. Only when the user explicit
 - `api.kimi.com` resolves only to public IPs; `198.18.0.0/15`, `fdfe:dcba:9876::/48`, IPv6 ULA, private, loopback, or other non-global answers are blockers.
 - `ocx status` default provider remains `openai` unless deliberately changed.
 - `~/.codex/auth.json` remains an OAuth credential file, not a single Kimi API key.
+- If DeepSeek is configured: `ocx provider test deepseek` is connected, `ocx provider selected deepseek` lists the chosen models, and a tool-bearing request passes without a schema 400.
+- If combo failover is configured: the alias appears in the routed catalog after `ocx sync`, and a canary through the alias completes on the first target.
+- If Kimi is a combo member and live discovery is off, that trade-off is recorded in the user's notes.
 - If Desktop had a `127.0.0.1:10100/v1/responses` 502, native Codex was restored with `ocx restore`; the proxy remains running and Kimi is used via `ocx opencode` until an explicit `ocx restore back`.
 - Notes, logs, skills, and commits contain no raw API keys or OAuth tokens.
