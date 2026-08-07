@@ -474,3 +474,20 @@ For 2.10.0 and earlier, patch the running source (Bun executes the TypeScript di
 - If Kimi is a combo member and live discovery is off, that trade-off is recorded in the user's notes.
 - If Desktop had a `127.0.0.1:10100/v1/responses` 502, native Codex was restored with `ocx restore`; the proxy remains running and Kimi is used via `ocx opencode` until an explicit `ocx restore back`.
 - Notes, logs, skills, and commits contain no raw API keys or OAuth tokens.
+
+## Provider error 400 `reasoning_content` / 500 empty credential (seen 2026-08)
+
+Symptoms, in escalating order: a long thinking-model session suddenly returns `Provider error 400: The reasoning_content in the thinking mode must be passed back to the API`, and later every Kimi request fails with `openai-chat requires a non-empty credential (authMode: key)`.
+
+Root causes to check, in order:
+
+1. **Who owns the listener.** `lsof -nP -iTCP:10100 -sTCP:LISTEN`, then `ps -o ppid,lstart,command -p <pid>`. If the proxy was (re)started by a watchdog/scheduler instead of the managed supervisor, its environment may be empty and its logs may not reach `~/.opencodex/service.log` — the file's mtime tells you whether the running process writes there at all.
+2. **Credential resolution.** In `~/.opencodex/config.json`, if the provider's `apiKey` is a `${VAR}` reference, confirm the *service* environment actually injects that variable. Check `apiKeyPool` for rotation onto dead entries. Validate each candidate key directly against the provider with a minimal `max_tokens` request; an `invalid_authentication_error` marks a dead key, while a billing/`429` answer still proves routing and auth work. Never echo full keys into logs or chat.
+3. **Repair pattern.** Back up `config.json`; embed the validated key as `apiKey`; prune dead pool entries; restart via the managed supervisor (`launchctl kickstart -k` or bootstrap the LaunchAgent), not an ad-hoc shell, so `KeepAlive` protection applies.
+4. **Verify with a two-step canary**, not a single ping: (a) request that forces a tool call at high reasoning effort, (b) continuation via `previous_response_id` with only `function_call_output`, exactly like Codex replays. Both steps must return 200; step (b) is where missing reasoning re-injection surfaces as the 400 above. Do not force `tool_choice` to a specific function on Kimi thinking models — the endpoint rejects `tool_choice 'specified' is incompatible with thinking enabled`; use `auto`.
+
+Upgrade notes (2.10.x):
+
+- Install with an explicit prefix (`npm i -g --prefix <prefix> @bitkyc08/opencodex@<version>`); machine-level npm config may redirect `-g` elsewhere, leaving the service on the old version while `opencodex --version` in a shell looks new.
+- Before restarting into a new package version, diff and re-apply every `Local patch`-marked hunk: Moonshot `.cn` registry baseUrl (domestic and international platforms are separate account systems; the wrong one is a hard 401), Kimi model-identity injection, DeepSeek null-type schema sanitize.
+- 2.10.x natively covers K3/K3 1M model metadata, reasoning-effort maps, and `preserveReasoningContentModels`; hand-maintained provider metadata in `config.json` remains compatible but is no longer strictly required for those fields.
